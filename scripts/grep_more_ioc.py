@@ -15,9 +15,9 @@ import sys
 from shutil import get_terminal_size
 from typing import Optional
 
-import pandas as pd
 from colorama import Fore, Style
 from constants import DEF_IMGR_KEYS, VALID_HUTCH
+from pandas import DataFrame, json_normalize, option_context, set_option
 
 ###############################################################################
 # %% Global settings
@@ -25,7 +25,7 @@ from constants import DEF_IMGR_KEYS, VALID_HUTCH
 # Change max rows displayed to prevent truncating the dataframe
 # We'll assume 1000 rows as an upper limit
 
-pd.set_option("display.max_rows", 1000)
+set_option("display.max_rows", 1000)
 
 ###############################################################################
 # %% Functions
@@ -365,13 +365,13 @@ def find_parent_ioc(file: str, path: str) -> str:
     return parent_ioc_release.rsplit('=', maxsplit=1)[-1]
 
 
-def print_frame2term(dataframe: pd.DataFrame = None,):
+def print_frame2term(dataframe: DataFrame = None,):
     """Wrapper for displaying the dataframe to proper terminal size"""
-    with pd.option_context('display.max_rows', None,
-                           'display.max_columns', None,
-                           'display.width',
-                           get_terminal_size(fallback=(120, 50))[0],
-                           ):
+    with option_context('display.max_rows', None,
+                        'display.max_columns', None,
+                        'display.width',
+                        get_terminal_size(fallback=(120, 50))[0],
+                        ):
         print(dataframe)
 
 ###############################################################################
@@ -501,7 +501,7 @@ def main():
         sys.exit()
 
     # create the dataframe after fixing the json format
-    df = pd.json_normalize(data)
+    df = json_normalize(data)
 
     # reorder the dataframe if searching all hutches
     if args.hutch == 'all':
@@ -511,13 +511,13 @@ def main():
     if 'disable' not in df.columns:
         df['disable'] = df.index.size*[False]
     # handle stupid pandas 3.0 future warnings early
-    with pd.option_context('future.no_silent_downcasting', True):
+    with option_context('future.no_silent_downcasting', True):
         if 'disable' in df.columns:
             df['disable'] = (df['disable'].infer_objects().fillna(False))
 
     # Fill the NaN with empty strings for rarely used keys
     # handle stupid pandas 3.0 future warnings early
-    with pd.option_context('future.no_silent_downcasting', True):
+    with option_context('future.no_silent_downcasting', True):
         for _col in df.columns:
             if _col not in ['delay']:
                 df[_col] = df[_col].infer_objects().fillna('')
