@@ -12,11 +12,13 @@ import json
 import os.path
 import re
 import sys
+from dataclasses import fields
 from shutil import get_terminal_size
 from typing import Optional
 
 from colorama import Fore, Style
 from constants import DEF_IMGR_KEYS, VALID_HUTCH
+from iocmanager import config as imgr_config
 from pandas import DataFrame, json_normalize, option_context, set_option
 
 ###############################################################################
@@ -89,52 +91,31 @@ def search_file(*, file: str, output: list = None,
         return prefix + prefix.join(output)
 
 
-def search_procmgr(*, file: str, patt: str = None, output: list = None,
-                   prefix: str = '') -> str:
-    """
-    Very similar to search_file, except it is to be used exclusively with
-    iocmanager.cfg files. Grabs the procmgr_cfg lists and searches the
-    regex 'patt' there. Can prepend text with 'prefix' and/or append
-    the results in 'output'.
+def search_procmgr(*, config: str, patt: str = None, output: list = None, hutch: str = None) -> str:
 
-    Parameters
-    ----------
-    file : str
-        The iocmanager.cfg file to search.
-    patt : str, optional
-        Regex pattern to search with. The default is None.
-    output : list, optional
-        A list to append the results to. The default is None.
-    prefix : str, optional
-        A prefix to add to the start of each result. The default is ''.
-
-    Returns
-    -------
-    str
-        A list[str] that is flattened back into a single body with the prefix
-        prepended. Each result is separated by 'prefix' and '\n'.
-
-    """
     # Some initialization
     if output is None:
         output = []
-    _patt = r'{.*' + patt + r'.*}'
+    patt = r'.*' + patt + r'.*'
     # First open the iocmanager.cfg, if it exists
-    if not (os.path.exists(file) and ('iocmanager.cfg' in file)):
-        print(f'{file} does not exist or is otherwise invalid.')
+    if not (os.path.exists(config) and ('iocmanager.cfg' in config)):
+        print(f'{config} does not exist or is otherwise invalid.')
         return ''
-    with open(file, 'r', encoding='utf-8') as _f:
-        raw_text = _f.read()
-    # then only grab the procmgr_cfg for the search
-    pmgr_key = r'procmgr_config = [\n '
-    pmgr = raw_text[(raw_text.find(pmgr_key)+len(pmgr_key)):-3]
-    # get rid of those pesty inline breaks within the JSOB obj
-    pmgr = pmgr.replace(',\n ', ',').replace('},{', '},\n{')
-    # now let we'll finally search through the IOCs and insert into output
-    output.extend(re.findall(_patt, pmgr))
-    # now return the searches with the prefix prepended and the necessary
-    # line break for later JSONification
-    return prefix + prefix.join([s + '\n' for s in output])
+
+    pmgr = imgr_config.read_config(config)
+
+    # walk the dataclass fields for the IOCProc
+    for proc in pmgr.procs.values():
+        for field in fields(proc):
+            if re.match(patt, str(getattr(proc, field.name))):
+                output.append(proc)
+
+    # add the hutch as an attr for the dataframe print later
+    if hutch:
+        for ioc in output:
+            ioc.hutch = hutch
+
+    return output
 
 
 def print_skip_comments(file: str):
