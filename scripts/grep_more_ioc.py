@@ -18,7 +18,7 @@ from colorama import Fore, Style
 from constants import VALID_HUTCH
 from iocmanager import config as imgr_config
 from iocmanager.config import IOCProc
-from pandas import DataFrame, json_normalize, option_context, set_option
+from pandas import DataFrame, option_context, set_option
 
 ###############################################################################
 # %% Global settings
@@ -359,7 +359,8 @@ def build_parser():
     print_frame.add_argument('-l', '--list', type=str,
                              metavar='KEY',
                              help='List the column from the dataframe.'
-                             + ' Acceptable keys are: [id, host, port, dir, history]')
+                             + ' Acceptable keys are: '
+                             + '[hutch, name, parent, host, port, disable]')
 
     print_frame.add_argument('-n', '--no_dataframe',
                              action='store_true', default=False,
@@ -433,28 +434,15 @@ def main():
         sys.exit()
 
     # create the dataframe after fixing the json format
-    df = json_normalize(data)
+    df = data
 
-    # reorder the dataframe if searching all hutches
+    # add the hutch column if searching all hutches
     if args.hutch == 'all':
-        df.insert(0, 'hutch', df.pop('hutch'))
+        df.insert(0, 'hutch', [ioc.hutch for ioc in data])
 
-    # pad the disable column based on the grep_ioc output
-    if 'disable' not in df.columns:
-        df['disable'] = df.index.size*[False]
-    # handle stupid pandas 3.0 future warnings early
-    with option_context('future.no_silent_downcasting', True):
-        if 'disable' in df.columns:
-            df['disable'] = (df['disable'].infer_objects().fillna(False))
-
-    # Fill the NaN with empty strings for rarely used keys
-    # handle stupid pandas 3.0 future warnings early
-    with option_context('future.no_silent_downcasting', True):
-        for _col in df.columns:
-            if _col not in ['delay']:
-                df[_col] = df[_col].infer_objects().fillna('')
-            else:
-                df[_col] = df[_col].infer_objects().fillna(0)
+    # filter out extraneous data
+    cols = ['hutch', 'name', 'dir', 'parent', 'host', 'port', 'history', 'alias', 'disable']
+    df = df.filter(cols, axis=1)
 
     # check for the ignore_disabled flag
     if args.ignore_disabled is True:
@@ -465,39 +453,14 @@ def main():
 # --------------------------------------------------------------------------- #
     # print the dataframe
     if hasattr(args, 'print'):
-        if args.release is True:
-            # intialize list for adding a new column
-            output_list = []
-            # iterate through ioc and directory pairs
-            for f, d in df.loc[:, ['id', 'dir']].values:
-                search_result = find_parent_ioc(f, d)
-                # catch parent IOCs running out of dev
-                if 'epics-dev' in search_result:
-                    output_str = search_result
-                # abbreviate path for standard IOC releases
-                elif 'common' in search_result:
-                    output_str = (search_result
-                                  .rsplit(r'common/', maxsplit=1)[-1])
-                # check for children living in parent's dir
-                elif '$$UP(PATH)' in search_result:
-                    output_str = d.rsplit(r'/children', maxsplit=1)[0]
-                # else use the full path that's found
-                else:
-                    output_str = search_result
-                # add it to the list
-                output_list.append(output_str)
-            # Then, finally, add the column to the dataframe
-            df['Release Version'] = output_list
-            # put it next to the child dirs
-            df.insert(df.columns.tolist().index('dir')+1,
-                      'Release Version',
-                      df.pop('Release Version'))
+        if not args.release:
+            df.pop('parent')
 
         if not args.no_dataframe:
             print_frame2term(df)
 
-        if args.skip_comments is True:
-            for ioc, d in df.loc[:, ['id', 'dir']].values:
+        if args.skip_comments:
+            for ioc, d in df.loc[:, ['name', 'path']].values:
                 # fixes dirs if ioc_manager truncates the path due to
                 # common ioc dir path
                 target_dir = fix_dir(d)
@@ -507,7 +470,7 @@ def main():
                 # prints the contents of the file while ignoring comments
                 print_skip_comments(file=f'{target_dir}{ioc}.cfg')
 
-        if args.print_dirs is True:
+        if args.print_dirs:
             print(f'{Fore.LIGHTBLUE_EX}\nDumping directories:\n'
                   + Style.RESET_ALL)
             for f, d in df.loc[:, ['id', 'dir']].values:
@@ -531,7 +494,7 @@ def main():
             print(f'{Fore.LIGHTMAGENTA_EX}\nDumping histories:\n'
                   + Style.RESET_ALL)
             if 'history' in df.columns:
-                for f, h in df.loc[:, ['id', 'history']].values:
+                for f, h in df.loc[:, ['name', 'history']].values:
                     print(f'{Fore.LIGHTYELLOW_EX}{f}{Style.RESET_ALL}'
                           + '\nhistory:\n\t'
                           + '\n\t'.join(h))
@@ -554,7 +517,7 @@ def main():
         _color = Fore.LIGHTRED_EX
         if args.no_color:
             _color = None
-        for ioc, d in df.loc[:, ['id', 'dir']].values:
+        for ioc, d in df.loc[:, ['name', 'path']].values:
             target_dir = fix_dir(d)
             # Search for pattern after moving into the directory
             if args.search is not None:
