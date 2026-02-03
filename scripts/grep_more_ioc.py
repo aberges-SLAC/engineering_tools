@@ -119,7 +119,6 @@ def search_procmgr(*, config: str, patt: str = None, output: list = None,
     # Some initialization
     if output is None:
         output = []
-    patt = r'.*' + patt + r'.*'
     # First open the iocmanager.cfg, if it exists
     if not (os.path.exists(config) and ('iocmanager.cfg' in config)):
         print(f'{config} does not exist or is otherwise invalid.')
@@ -127,16 +126,17 @@ def search_procmgr(*, config: str, patt: str = None, output: list = None,
 
     pmgr = imgr_config.read_config(config)
 
+    _patt = re.compile(patt)
     # walk the dataclass fields for the IOCProc
+    props = fields(IOCProc)
     for proc in pmgr.procs.values():
-        for field in fields(proc):
-            if re.match(patt, str(getattr(proc, field.name))):
-                output.append(proc)
-
-    # add the hutch as an attr for the dataframe print later
-    if hutch:
-        for ioc in output:
-            ioc.hutch = hutch
+        field_str = ''
+        for field in props:
+            field_str += str(getattr(proc, field.name))
+        if _patt.search(field_str):
+            if hutch:
+                proc.hutch = hutch
+            output.append(proc)
 
     return output
 
@@ -224,12 +224,10 @@ def find_ioc(hutch: str = None, patt: str = None,
     result = []
     # iterate and capture results.
     for cfg in path:
-        if len(path) != 1:
-            _hutch = cfg.rsplit(r'/', maxsplit=2)[-2]
+        _hutch = cfg.rsplit(r'/', maxsplit=2)[-2]
         output = search_procmgr(config=cfg, patt=patt, hutch=_hutch)
-        result.append(output)
+        result.extend(output)
     # Flatten the results
-    result = [elem for sub_list in result for elem in sub_list]
     if len(result) == 0:
         print(f'{Fore.RED}No results found for {Style.RESET_ALL}{patt}'
               + f'{Fore.RED} in{Style.RESET_ALL} '
@@ -434,7 +432,7 @@ def main():
         sys.exit()
 
     # create the dataframe after fixing the json format
-    df = data
+    df = DataFrame(data)
 
     # add the hutch column if searching all hutches
     if args.hutch == 'all':
